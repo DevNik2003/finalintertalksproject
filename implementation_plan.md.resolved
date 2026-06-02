@@ -1,0 +1,86 @@
+# Implement Document Ingestion & Versioning System
+
+This plan outlines the implementation of the Document Ingestion and Governance Layer according to the strict schema and access control rules provided.
+
+## Proposed Changes
+
+### Models
+#### [NEW] app/models/document.py
+Create SQLAlchemy models matching the provided PostgreSQL schema strings perfectly:
+- `LifecycleState` enum (`UPLOADED`, `UNDER_REVIEW`, `APPROVED`, `DEPRECATED`).
+- `Document` model corresponding to the `documents` table.
+- `DocumentVersion` model corresponding to the `document_versions` table, adding the `file_path` column for local storage reference. Also defines the `unique_doc_version` constraint.
+- `Chunk` model corresponding to the `chunks` table.
+- `AuditLog` model corresponding to the `audit_logs` table.
+
+### Schemas
+#### [NEW] app/schemas/document.py
+Create Pydantic models for API request/response validation:
+- `DocumentUploadResponse`: Schema for returning successful upload details (metadata, version, audit ID).
+- `DocumentApproveResponse`: Schema for returning approval success.
+- `DocumentVersionOut`: Basic schema summarizing version data.
+
+### Utilities
+#### [NEW] app/utils/file_parser.py
+Implement robust parsing strategies using `pdfplumber` and `python-docx`:
+- **PDF Extraction**: Use `pdfplumber` with layout extraction to preserve logical reading order and detect multi-column text.
+- **DOCX Extraction**: Use `python-docx` to extract structural paragraphs and headings.
+- **Chunking Logic**: Implement section-aware chunking based on headings or logical token limits with overlap. Returns chunk text and token count (using a basic tokenizer like `tiktoken` or approximate counting if unavailable).
+- **Hashing**: Utility to calculate SHA-256 checksums of the raw text to prevent duplicate versions.
+
+#### [NEW] app/utils/storage.py
+- Local file storage utility to save uploaded `.pdf` and `.docx` files to a secure directory (e.g., `uploaded_docs/`) and return the `file_path`.
+
+### Services
+#### [NEW] app/services/document_service.py
+Hold the core business logic integrating models and utilities:
+- `upload_document(file: UploadFile, department: str, current_user: User)`:
+    - Validates file type and size.
+    - Saves file locally using storage utility.
+    - Extracts raw text and calculates the checksum.
+    - Checks for existing checksum in DB.
+    - Creates `Document` (if new) and `DocumentVersion` (state `UPLOADED`).
+    - Creates `AuditLog` entry (action `DOCUMENT_UPLOADED`).
+- `approve_document(version_id: UUID, current_user: User)`:
+    - Retrieves the version ensuring state is `UPLOADED` or `UNDER_REVIEW`.
+    - Updates state to `APPROVED`, sets `approved_by` and `approved_at`.
+    - Creates `AuditLog` entry (action `DOCUMENT_APPROVED`).
+    - *Deferred step for embedding generation (noted in comments).*
+
+### API Routes
+#### [NEW] app/api/routes/documents.py
+Expose the endpoints with strict access control:
+- `POST /documents/upload`: 
+    - Uses `Depends(require_role(UserRole.CONTRIBUTOR))` OR `ADMIN`.
+    - Consumes `UploadFile` and `department` form field.
+- `POST /documents/{version_id}/approve`:
+    - Uses `Depends(require_role(UserRole.REVIEWER))` OR `ADMIN`.
+
+#### [MODIFY] app/main.py
+- Register the new `documents` router.
+
+### Requirements
+#### [MODIFY] requirements.txt
+- Add `pdfplumber` and `python-docx`.
+
+## Verification Plan
+
+### Automated Tests
+- N/A at this stage; testing will primarily be manual functional verification.
+
+### Manual Verification
+1.  **Alembic Migrations** (if using alembic) or Table Creation: Verify that all new tables are created correctly in the PostgreSQL database corresponding to the exact models.
+2.  **Upload Flow**:
+    - Login as a `CONTRIBUTOR`.
+    - POST a PDF/DOCX to `/documents/upload` with a department string.
+    - Verify file is saved in object storage (local directory).
+    - Verify database entries: `documents`, `document_versions` (state `UPLOADED`), `audit_logs`.
+    - Verify rejecting duplicate files based on checksum.
+3.  **Approval Flow**:
+    - Login as a `REVIEWER` or `ADMIN`.
+    - POST to `/documents/{version_id}/approve` using the previously created version ID.
+    - Verify the `document_versions` state is updated to `APPROVED`.
+    - Verify an `audit_logs` record is created for `DOCUMENT_APPROVED`.
+4.  **Access Control**:
+    - Attempt to upload as `VIEWER` (Expected: 403 Forbidden).
+    - Attempt to approve as `CONTRIBUTOR` (Expected: 403 Forbidden).

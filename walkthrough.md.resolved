@@ -1,0 +1,47 @@
+# Document Ingestion & Governance Layer Walkthrough
+
+This document outlines the core models, APIs, and business logic integrated as part of the new Document Ingestion and Versioning System.
+
+> [!IMPORTANT]
+> This system rigorously adheres to the production-grade PostgreSQL constraints, enforcing no-delete rules on versions, strict checksums for duplication detection, and role-based access control (RBAC).
+
+## New Entities & Schemas
+
+We mapped four main database tables strictly avoiding overwrites:
+1. [Document](file:///c:/Users/nikhil%20chauhan/Desktop/InterTalks/app/models/document.py#16-27): Tracking the root document entity (title, department).
+2. [DocumentVersion](file:///c:/Users/nikhil%20chauhan/Desktop/InterTalks/app/models/document.py#28-55): A version-controlled instance of a document, immutable once approved (requires checksums, `file_path`, token states).
+3. [Chunk](file:///c:/Users/nikhil%20chauhan/Desktop/InterTalks/app/models/document.py#56-67): Sub-sections derived by breaking down approved [DocumentVersion](file:///c:/Users/nikhil%20chauhan/Desktop/InterTalks/app/models/document.py#28-55)s, mapped back to their version via `version_id`.
+4. [AuditLog](file:///c:/Users/nikhil%20chauhan/Desktop/InterTalks/app/models/document.py#68-82): Action tracking for any state mutation (`DOCUMENT_UPLOADED`, `DOCUMENT_APPROVED`).
+
+## Workflows
+
+### 1. Document Upload Flow (CONTRIBUTOR / ADMIN)
+**Endpoint**: `POST /documents/upload`
+- Supports `.pdf` and `.docx` using `fastapi.UploadFile`.
+- **RBAC**: Guarded by `Depends(require_role(UserRole.CONTRIBUTOR))`.
+- **File Parsing**: 
+  - PDFs are extracted via `pdfplumber` ensuring correct logical reading order.
+  - DOCX files are extracted via `python-docx` retaining heading/table structure.
+- **Storage**: Binary files are **not** placed in PostgreSQL. They are stored locally under `uploaded_docs/` and referenced via `file_path` on the [DocumentVersion](file:///c:/Users/nikhil%20chauhan/Desktop/InterTalks/app/models/document.py#28-55).
+- **Governance**: A SHA-256 Hash of the raw text is validated against existing versions.
+- **Result Status**: The version enters an `UPLOADED` state.
+  
+### 2. Document Approval Flow (REVIEWER / ADMIN)
+**Endpoint**: `POST /documents/{version_id}/approve`
+- **RBAC**: Guarded by `Depends(require_role(UserRole.REVIEWER))`.
+- **State Change**: Modifies `lifecycle_state` from `UPLOADED` to `APPROVED`.
+- **Chunking Pipeline Triggered**: 
+  - Splits documents into logical subsets (currently section-aware chunking).
+  - Calculates roughly estimated tokens for each chunk.
+  - Generates [Chunk](file:///c:/Users/nikhil%20chauhan/Desktop/InterTalks/app/models/document.py#56-67) entries associated with the approved `version_id`.
+- **Embeddings**: Prepared for the final downstream task. (Vector DB sync left as a deferred task / worker job).
+
+## Audit Logging
+
+Every crucial operation generates an immutable [AuditLog](file:///c:/Users/nikhil%20chauhan/Desktop/InterTalks/app/models/document.py#68-82) entry detailing:
+- `action_type`: Like `DOCUMENT_UPLOADED`
+- `user_id`: The ID of the authenticated user
+- `metadata`: Flexible payload containing details like file size, target department, or chunk counts.
+
+## Testing Setup
+Since there is no DB instance running in the current context, testing can be performed functionally by firing `POST` requests to these API endpoints via Swagger UI after generating a token using the `Authentication` router.

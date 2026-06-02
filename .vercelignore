@@ -1,0 +1,12 @@
+venv
+**/__pycache__
+**/node_modules
+*.db
+app.db
+test.db
+qdrant_data
+uploaded_docs
+.git
+.gitignore
+*.pyc
+.DS_Store
