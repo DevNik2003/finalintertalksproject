@@ -108,3 +108,15 @@ htmlcov/
 *.gz
 *.rar
 *.7z
+
+venv/
+node_modules/
+__pycache__/
+*.db
+.env
+uploads/
+dist/
+build/
+.pytest_cache/
+.idea/
+.vscode/
