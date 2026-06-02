@@ -105,18 +105,74 @@ htmlcov/
 
 *.zip
 *.tar
+*.tar.gz
+*.tgz
 *.gz
 *.rar
 *.7z
+*.bz2
+*.xz
+*.iso
+*.dmg
+*.jar
 
-venv/
-node_modules/
-__pycache__/
+# Media and large binary assets
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wav
+*.mp3
+*.exe
+*.dll
+*.lib
+*.psd
+
+# Databases and local storage
+*.sqlite3
 *.db
-.env
-uploads/
+*.db-journal
+*.sql
+*.bak
+qdrant_data/
+uploaded_docs/
+
+# ML / model artifacts
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.onnx
+*.h5
+*.model
+
+# Build / dependency folders
+venv/
+env/
+.venv/
+node_modules/
+**/node_modules/
+rag-frontend/dist/
 dist/
 build/
+
+# Cache / temporary files
+__pycache__/
 .pytest_cache/
-.idea/
+.cache/
+.huggingface/
+.hf/
+*.cache
+tmp/
+temp/
+
+# Environment and credentials
+.env
+.env.*
+*.env
+
+# IDE / editor
 .vscode/
+.idea/
+*.swp
+*.swo
